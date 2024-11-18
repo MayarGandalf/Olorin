@@ -219,7 +219,7 @@ login_window.setLayout(login_layout)
 
 # Create the main chat window
 window = QWidget()
-window.setWindowTitle("Huessenger")
+window.setWindowTitle("Olorin")
 window.setWindowIcon(QIcon('path/to/icon.png'))  # Update with your icon path
 window.resize(800, 600)
 
