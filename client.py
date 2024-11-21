@@ -2,13 +2,15 @@ import sys
 import asyncio
 import websockets
 import json
-from PyQt6.QtGui import QFont, QIcon
-from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel, QTextEdit
+import base64
+from PyQt6.QtGui import QFont, QIcon, QPixmap
+from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel, QTextEdit, QFileDialog
 from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtGui import QPixmap
+from PyQt6.QtWidgets import QLabel
 
 app = QApplication(sys.argv)
 
-# Global variable to hold the WebSocket connection
 ws_connection = None
 
 class WebSocketClient(QThread):
@@ -29,27 +31,38 @@ class WebSocketClient(QThread):
 
     async def send_message_to_server(self, message):
         if ws_connection:
-            print(f"Sending message to server: {message}")  # Log sent message
+            print(f"Sending message to server: {message}")
             await ws_connection.send(message)
+
+    async def send_image_to_server(self, image_path):
+        if ws_connection:
+            # Чтение изображения и преобразование в base64
+            with open(image_path, "rb") as image_file:
+                encoded_image = base64.b64encode(image_file.read()).decode("utf-8")
+
+            image_data = {
+                "command": "SEND_IMAGE",
+                "image": encoded_image
+            }
+            await self.send_message_to_server(json.dumps(image_data))
 
     async def receive_messages(self):
         global ws_connection
         while True:
             message = await ws_connection.recv()
-            print(f"Received message: {message}")  # Log received message
+            print(f"Received message: {message}")
             self.message_received.emit(message)
 
     def run(self):
         asyncio.set_event_loop(self.loop)
-        self.loop.run_until_complete(self.connect_to_server("ws://localhost:8765"))  # Replace with your WebSocket server URL
+        self.loop.run_until_complete(self.connect_to_server("ws://localhost:8765"))
 
-# Create a WebSocketClient instance
+
 ws_client = WebSocketClient()
 
 def on_message_received(message):
     print("Received message:", message)
     try:
-        # Попробуем распарсить JSON
         response = json.loads(message)
         print(f"Parsed response: {response}")
         if "response" in response:
@@ -57,18 +70,20 @@ def on_message_received(message):
                 on_login_success()
             elif response["response"] == "REGISTER_SUCCESS":
                 print("Registration successful!")
-            else:
-                print(response.get("error", "Unknown error"))
-        elif "error" in response:
-            print(f"Error: {response['error']}")
-        elif "SEND_MESSAGE" in response:
-            print(f"Received a message: {response['SEND_MESSAGE']}")
+        elif "SEND_IMAGE" in response:
+            # Декодируем и показываем изображение
+            image_data = response["SEND_IMAGE"]
+            image = base64.b64decode(image_data)
+            pixmap = QPixmap()
+            pixmap.loadFromData(image)
+            # image_label.setPixmap(pixmap)
+            print("Image received and displayed.")
     except json.JSONDecodeError:
         print("Failed to decode server message")
 
 
 ws_client.message_received.connect(on_message_received)
-ws_client.start()  # Start the WebSocket client thread
+ws_client.start()
 
 def input_username():
     username_text = username.text()
@@ -86,9 +101,9 @@ def input_username():
         username.clear()
 
 def send_message():
-    message_text = message_line.text()  # Получаем текст из поля ввода
+    message_text = message_line.text()
     if message_text.strip() == "":
-        message_line.setPlaceholderText("Empty")  # Поменять placeholder, если текст пустой
+        message_line.setPlaceholderText("Empty")
         print("Empty")
     else:
         print(f"Sent message: {message_text}")
@@ -96,10 +111,16 @@ def send_message():
             "command": "SEND_MESSAGE",
             "message": message_text
         }
-        # Отправляем сообщение на сервер
         asyncio.run_coroutine_threadsafe(ws_client.send_message_to_server(json.dumps(message_data)), ws_client.loop)
         message_line.setPlaceholderText("Enter your message")
-        message_line.clear()  # Очищаем поле ввода после отправки сообщения
+        message_line.clear()
+
+def send_image():
+    # Открытие диалога выбора изображения
+    image_path, _ = QFileDialog.getOpenFileName(window, "Select an Image")
+    if image_path:
+        print(f"Sending image: {image_path}")
+        asyncio.run_coroutine_threadsafe(ws_client.send_image_to_server(image_path), ws_client.loop)
 
 
 def toggle_theme():
@@ -159,7 +180,6 @@ def apply_dark_theme():
     """)
     theme_button.setText("Disable Dark Theme")
 
-# Login and Registration Handling
 def on_login_button_click():
     username_text = username.text()
     password_text = password.text()
@@ -186,7 +206,6 @@ def on_register_button_click():
     }
     asyncio.run_coroutine_threadsafe(ws_client.send_message_to_server(json.dumps(register_message)), ws_client.loop)
 
-# Create the login and registration window
 login_window = QWidget()
 login_window.setWindowTitle("Login or Register")
 login_window.resize(400, 300)
@@ -217,10 +236,9 @@ login_layout.addWidget(register_button)
 
 login_window.setLayout(login_layout)
 
-# Create the main chat window
 window = QWidget()
-window.setWindowTitle("Olorin")
-window.setWindowIcon(QIcon('path/to/icon.png'))  # Update with your icon path
+window.setWindowTitle("Huessenger")
+window.setWindowIcon(QIcon('path/to/icon.png'))
 window.resize(800, 600)
 
 main_layout = QVBoxLayout()
@@ -236,16 +254,25 @@ button_message.setFont(QFont("Arial", 12, QFont.Weight.Bold))
 button_message.setToolTip("Click to send the message")
 button_message.clicked.connect(send_message)
 
+send_image_button = QPushButton("Send Image")
+send_image_button.setFixedSize(200, 50)
+send_image_button.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+send_image_button.clicked.connect(send_image)
+
 theme_button = QPushButton("Enable Dark Theme")
 theme_button.setFixedSize(200, 50)
 theme_button.setFont(QFont("Arial", 12, QFont.Weight.Bold))
 theme_button.setCheckable(True)
 theme_button.clicked.connect(toggle_theme)
 
-# Add a QTextEdit for chat output
 chat_output = QTextEdit()
 chat_output.setReadOnly(True)
 chat_output.setFont(QFont("Arial", 12))
+
+button_Image = QHBoxLayout()
+button_Image.addStretch()
+button_Image.addWidget(send_image_button)
+button_Image.addStretch()
 
 button_layoutMess = QHBoxLayout()
 button_layoutMess.addStretch()
@@ -257,25 +284,23 @@ theme_layout.addStretch()
 theme_layout.addWidget(theme_button)
 theme_layout.addStretch()
 
-# Add widgets to the main layout
-main_layout.addWidget(chat_output)  # Add the chat_output widget to the layout
+main_layout.addWidget(chat_output)
 main_layout.addWidget(message_line)
+main_layout.addLayout(button_Image)
 main_layout.addLayout(button_layoutMess)
 main_layout.addLayout(theme_layout)
 
 window.setLayout(main_layout)
 
-# Function to show the main chat window after successful login
 def on_login_success():
     print("Login successful! Switching to chat window.")
-    login_window.close()  # Close login window
-    window.show()  # Show the main chat window
+    login_window.close()
+    window.show()
 
 ws_client.message_received.connect(on_message_received)
 
 apply_light_theme()
 
-# Show the login window initially
 login_window.show()
 
 sys.exit(app.exec())
